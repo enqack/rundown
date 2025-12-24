@@ -5,8 +5,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/progress"
-	"github.com/charmbracelet/lipgloss"
 	"github.com/enqack/rundown/internal/layout"
 	"github.com/enqack/rundown/internal/theme"
 )
@@ -21,58 +19,44 @@ func (m *Model) updateCpuViewport() {
 
 	l := layout.New(m.Width, m.Height)
 
-	cpuUsage := theme.MetricLabelStyle.Render(fmt.Sprintf("Global CPU Usage: %.2f%%", m.Stats.CPUUsage)) + "\n" + m.CPUProg.ViewAs(m.Stats.CPUUsage/100)
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(cpuUsage) + "\n\n")
+	// Set width before viewing
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), "Global CPU Usage", m.CPUProg, m.Stats.CPUUsage/100, m.Stats.CPUUsage, "%") + "\n")
 
 	// Per-Core CPU Usage
 	if len(m.Stats.CPUCores) > 0 {
-		// Ensure we have enough progress bars
-		for len(m.CPUCoresProgs) < len(m.Stats.CPUCores) {
-			p := progress.New(progress.WithDefaultGradient())
-			p.FullColor = string(theme.PrimaryColor)
-			// Initial width - should be dynamic in Update, but good fallback
-			leftBoxW, _ := l.SplitTwoColumns(l.UsableWidth(), 0)
-			p.Width = l.GraphWidth(l.BoxContentWidth(leftBoxW))
-
-			if m.Width <= 120 {
-				p.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+		if len(m.CPUCoresProgs) == 0 {
+			for range m.Stats.CPUCores {
+				p := theme.NewThemedProgress()
+				m.CPUCoresProgs = append(m.CPUCoresProgs, p)
 			}
-			m.CPUCoresProgs = append(m.CPUCoresProgs, p)
-		}
-
-		var coreBoxes []string
-		for i, coreUsage := range m.Stats.CPUCores {
-			label := theme.MetricLabelStyle.Render(fmt.Sprintf("Core %d: %.1f%%", i, coreUsage))
-			bar := m.CPUCoresProgs[i].ViewAs(coreUsage / 100)
-			coreBoxes = append(coreBoxes, label+"\n"+bar)
 		}
 
 		// Grid Layout
 		var rows []string
-		leftBoxW, rightBoxW := l.SplitTwoColumns(l.UsableWidth(), 0)
-
-		// Calculate the standard box width once to ensure consistency
-		standardBoxWidth := l.BoxContentWidth(l.UsableWidth())
+		leftBoxW, rightBoxW := l.SplitTwoColumns(l.UsableWidth(), 2)
 
 		if m.Width > 120 {
-			// 2 Columns - use split widths directly
-			for i := 0; i < len(coreBoxes); i += 2 {
-				left := theme.BoxStyle.Width(l.BoxContentWidth(leftBoxW)).Render(coreBoxes[i])
-				right := ""
-				if i+1 < len(coreBoxes) {
-					right = theme.BoxStyle.Width(l.BoxContentWidth(rightBoxW)).Render(coreBoxes[i+1])
+			// 2 Columns
+			for i := 0; i < len(m.Stats.CPUCores); i += 2 {
+				// Left Box
+				left := m.renderTacticalGauge(leftBoxW, fmt.Sprintf("Core %d", i), m.CPUCoresProgs[i], m.Stats.CPUCores[i]/100, m.Stats.CPUCores[i], "%")
+
+				// Right Box
+				var right string
+				if i+1 < len(m.Stats.CPUCores) {
+					right = m.renderTacticalGauge(rightBoxW, fmt.Sprintf("Core %d", i+1), m.CPUCoresProgs[i+1], m.Stats.CPUCores[i+1]/100, m.Stats.CPUCores[i+1], "%")
 				} else {
-					right = theme.BoxStyle.Width(l.BoxContentWidth(rightBoxW)).Render("")
+					right = m.renderTacticalBox(rightBoxW, "")
 				}
-				rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, left, "  ", right))
+				rows = append(rows, m.renderTacticalRow(l.UsableWidth(), 2, left, right))
 			}
 		} else {
-			// 1 Column - use the same width as Global CPU box
-			for _, box := range coreBoxes {
-				rows = append(rows, theme.BoxStyle.Width(standardBoxWidth).Render(box))
+			// 1 Column
+			for i, usage := range m.Stats.CPUCores {
+				rows = append(rows, m.renderTacticalGauge(l.UsableWidth(), fmt.Sprintf("Core %d", i), m.CPUCoresProgs[i], usage/100, usage, "%"))
 			}
 		}
-		s.WriteString(strings.Join(rows, "\n") + "\n\n")
+		s.WriteString(strings.Join(rows, "\n") + "\n")
 	}
 
 	headers := []string{"PID", "USER", "%CPU", "%MEM", "TIME+", "COMMAND"}

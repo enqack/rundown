@@ -24,6 +24,7 @@ func collectDisks(s *SystemStats) {
 		if err == nil {
 			s.Disks = append(s.Disks, DiskInfo{
 				MountPoint: p.Mountpoint,
+				Device:     p.Device,
 				Used:       usage.Used,
 				Total:      usage.Total,
 				Usage:      usage.UsedPercent,
@@ -36,8 +37,14 @@ func collectDisks(s *SystemStats) {
 		return s.Disks[i].MountPoint < s.Disks[j].MountPoint
 	})
 
-	// Calculate aggregates
+	// Calculate aggregates (deduplicating by device)
+	seenDevices := make(map[string]bool)
 	for _, d := range s.Disks {
+		if seenDevices[d.Device] {
+			continue
+		}
+		seenDevices[d.Device] = true
+
 		s.DiskTotal += d.Total
 		s.DiskUsed += d.Used
 	}

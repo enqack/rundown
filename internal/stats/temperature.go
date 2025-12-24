@@ -60,7 +60,7 @@ func getNvidiaTemps() []TempInfo {
 		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
 		for i, line := range lines {
 			var temp float64
-			fmt.Sscanf(line, "%f", &temp)
+			_, _ = fmt.Sscanf(line, "%f", &temp)
 			results = append(results, TempInfo{
 				SensorKey:   fmt.Sprintf("Nvidia GPU %d", i),
 				Temperature: temp,

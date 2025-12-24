@@ -5,124 +5,106 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/enqack/rundown/internal/layout"
 	"github.com/enqack/rundown/internal/stats"
 	"github.com/enqack/rundown/internal/theme"
 )
 
 func (m Model) netView() string {
+	return m.NetViewport.View()
+}
+
+func (m *Model) updateNetViewport() {
 	var s strings.Builder
 	s.WriteString(theme.TitleStyle.Render("Detailed Network Statistics") + "\n\n")
 
 	l := layout.New(m.Width, m.Height)
 
-	linkInfo := fmt.Sprintf("%s: %s  |  %s: %s  |  %s: %s",
-		theme.MetricLabelStyle.Render("LINK SPEED"), stats.FormatBytes(m.Stats.LinkSpeed/8)+"/s",
-		theme.MetricLabelStyle.Render("TOTAL SENT"), stats.FormatBytes(m.Stats.NetSent),
-		theme.MetricLabelStyle.Render("TOTAL RECV"), stats.FormatBytes(m.Stats.NetRecv))
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(lipgloss.NewStyle().Width(l.BoxContentWidth(l.UsableWidth())).Render(linkInfo)) + "\n\n")
-
+	// Global Aggregate Graphs
 	scaleUp := getStepScale(m.Stats.NetSentDelta*8, m.Stats.LinkSpeed)
 	scaleDn := getStepScale(m.Stats.NetRecvDelta*8, m.Stats.LinkSpeed)
 
+	netUpTitle := fmt.Sprintf("Global Egress (Scale: %s/s) | Total: %s",
+		stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleUp)), stats.FormatBytes(m.Stats.NetSent))
+	netDnTitle := fmt.Sprintf("Global Ingress (Scale: %s/s) | Total: %s",
+		stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleDn)), stats.FormatBytes(m.Stats.NetRecv))
+
+	upRatio := float64(m.Stats.NetSentDelta*8) / (float64(m.Stats.LinkSpeed) * scaleUp)
+	dnRatio := float64(m.Stats.NetRecvDelta*8) / (float64(m.Stats.LinkSpeed) * scaleDn)
+
+	leftBoxW, rightBoxW := l.SplitTwoColumns(l.UsableWidth(), 2)
+
 	if m.Width > 120 {
-		leftBoxW, rightBoxW := l.SplitTwoColumns(l.UsableWidth(), 0)
-
-		m.NetUpProg.Width = l.GraphWidth(l.BoxContentWidth(leftBoxW))
-		m.NetDnProg.Width = l.GraphWidth(l.BoxContentWidth(rightBoxW))
-
-		netUp := theme.MetricLabelStyle.Render(fmt.Sprintf("Upload:   %s/s (Scale: %.0f%%)", stats.FormatBytes(m.Stats.NetSentDelta), scaleUp*100)) + "\n" + m.NetUpProg.ViewAs(float64(m.Stats.NetSentDelta*8)/(float64(m.Stats.LinkSpeed)*scaleUp))
-		netDn := theme.MetricLabelStyle.Render(fmt.Sprintf("Download: %s/s (Scale: %.0f%%)", stats.FormatBytes(m.Stats.NetRecvDelta), scaleDn*100)) + "\n" + m.NetDnProg.ViewAs(float64(m.Stats.NetRecvDelta*8)/(float64(m.Stats.LinkSpeed)*scaleDn))
-
-		upBox := theme.BoxStyle.Width(l.BoxContentWidth(leftBoxW)).Render(netUp)
-		dnBox := theme.BoxStyle.Width(l.BoxContentWidth(rightBoxW)).Render(netDn)
-		s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, upBox, "  ", dnBox) + "\n\n")
+		upBox := m.renderTacticalGauge(leftBoxW, netUpTitle, m.NetUpProg, upRatio, upRatio*100, "%")
+		dnBox := m.renderTacticalGauge(rightBoxW, netDnTitle, m.NetDnProg, dnRatio, dnRatio*100, "%")
+		s.WriteString(m.renderTacticalRow(l.UsableWidth(), 2, upBox, dnBox) + "\n")
 	} else {
-		fullBoxW := l.BoxContentWidth(l.UsableWidth())
-		m.NetUpProg.Width = l.GraphWidth(fullBoxW)
-		m.NetDnProg.Width = l.GraphWidth(fullBoxW)
-
-		netUp := theme.MetricLabelStyle.Render(fmt.Sprintf("Upload:   %s/s (Scale: %.0f%%)", stats.FormatBytes(m.Stats.NetSentDelta), scaleUp*100)) + "\n" + m.NetUpProg.ViewAs(float64(m.Stats.NetSentDelta*8)/(float64(m.Stats.LinkSpeed)*scaleUp))
-		netDn := theme.MetricLabelStyle.Render(fmt.Sprintf("Download: %s/s (Scale: %.0f%%)", stats.FormatBytes(m.Stats.NetRecvDelta), scaleDn*100)) + "\n" + m.NetDnProg.ViewAs(float64(m.Stats.NetRecvDelta*8)/(float64(m.Stats.LinkSpeed)*scaleDn))
-
-		// Stacked
-		s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(netUp) + "\n")
-		s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(netDn) + "\n\n")
+		upBar := m.renderTacticalGauge(l.UsableWidth(), netUpTitle, m.NetUpProg, upRatio, upRatio*100, "%")
+		dnBar := m.renderTacticalGauge(l.UsableWidth(), netDnTitle, m.NetDnProg, dnRatio, dnRatio*100, "%")
+		s.WriteString(upBar + "\n" + dnBar + "\n")
 	}
 
+	// Per-Interface Graphs
+	for _, iface := range m.Stats.Interfaces {
+		if iface.Sent == 0 && iface.Recv == 0 && (iface.Name == "lo" || iface.Name == "lo0") {
+			continue
+		}
+
+		if _, ok := m.IfaceUpProgs[iface.Name]; !ok {
+			up := theme.NewThemedProgress()
+			dn := theme.NewThemedProgress()
+			m.IfaceUpProgs[iface.Name] = up
+			m.IfaceDnProgs[iface.Name] = dn
+		}
+
+		upProg := m.IfaceUpProgs[iface.Name]
+		dnProg := m.IfaceDnProgs[iface.Name]
+
+		iScaleUp := getStepScale(iface.SentDelta*8, m.Stats.LinkSpeed)
+		iScaleDn := getStepScale(iface.RecvDelta*8, m.Stats.LinkSpeed)
+
+		iUpTitle := fmt.Sprintf("%s Egress: %s/s", iface.Name, stats.FormatBytes(iface.SentDelta))
+		iDnTitle := fmt.Sprintf("%s Ingress: %s/s", iface.Name, stats.FormatBytes(iface.RecvDelta))
+
+		upRatio := float64(iface.SentDelta*8) / (float64(m.Stats.LinkSpeed) * iScaleUp)
+		dnRatio := float64(iface.RecvDelta*8) / (float64(m.Stats.LinkSpeed) * iScaleDn)
+
+		if m.Width > 120 {
+			upBox := m.renderTacticalGauge(leftBoxW, iUpTitle, upProg, upRatio, upRatio*100, "%")
+			dnBox := m.renderTacticalGauge(rightBoxW, iDnTitle, dnProg, dnRatio, dnRatio*100, "%")
+			s.WriteString(m.renderTacticalRow(l.UsableWidth(), 2, upBox, dnBox) + "\n")
+		} else {
+			upBar := m.renderTacticalGauge(l.UsableWidth(), iUpTitle, upProg, upRatio, upRatio*100, "%")
+			dnBar := m.renderTacticalGauge(l.UsableWidth(), iDnTitle, dnProg, dnRatio, dnRatio*100, "%")
+			s.WriteString(upBar + "\n" + dnBar + "\n")
+		}
+
+		m.IfaceUpProgs[iface.Name] = upProg
+		m.IfaceDnProgs[iface.Name] = dnProg
+	}
+
+	s.WriteString("\n")
+
+	// Active Connections Table (Bottom)
 	headers := []string{"PROTO", "DIR", "STATE", "LOCAL", "FOREIGN", "PROGRAM"}
-	// Fixed: 6 7 15
-
-	availWidth := l.BoxContentWidth(l.UsableWidth())
-	// Dynamic cols: 3 of them.
-	// Helper supports 1 dynamic col...
-	// We need 3 dynamic cols.
-	// Let's optimize local calc.
-
-	used := 6 + 7 + 15
-	totalCols := 6
-	paddingOverhead := totalCols * 2
-
-	rem := availWidth - used - paddingOverhead
+	usedW := 6 + 7 + 15
+	paddingOverhead := 6 * 2
+	rem := l.UsableWidth() - usedW - paddingOverhead
 	if rem < 10 {
 		rem = 10
 	}
 	w := rem / 3
-	if w < 1 {
-		w = 1
-	}
 	widths := []int{6, 7, 15, w, w, w}
 
-	// Calculate height of top content dynamically
-	topContent := s.String()
-	usedHeight := lipgloss.Height(topContent)
-
-	// Table Overhead: Title(1) + Blank(2) + Header(3)
-	tableOverhead := 6
-
-	connLimit := l.UsableHeight() - usedHeight - tableOverhead
-	if connLimit < 1 {
-		connLimit = 1
-	}
 	var rows [][]string
 	for _, c := range m.Stats.Connections {
-		pname := c.PName
-		if pname == "" {
-			pname = "-"
-		}
-		rows = append(rows, []string{
-			c.Proto,
-			c.Direction,
-			c.State,
-			c.Local,
-			c.Remote,
-			fmt.Sprintf("%d/%s", c.PID, pname),
-		})
+		rows = append(rows, []string{c.Proto, c.Direction, c.State, c.Local, c.Remote, fmt.Sprintf("%d/%s", c.PID, c.PName)})
 	}
-
 	sort.SliceStable(rows, func(i, j int) bool {
-		switch m.SortBy {
-		case "local":
-			return rows[i][3] < rows[j][3]
-		case "foreign":
-			return rows[i][4] < rows[j][4]
-		case "state":
-			return rows[i][2] < rows[j][2]
-		case "name":
-			return rows[i][5] < rows[j][5]
-		case "pid":
-			return rows[i][5] < rows[j][5]
-		default:
-			return false
-		}
+		return rows[i][3] < rows[j][3] // Sort by local addr by default
 	})
-
-	if len(rows) > connLimit {
-		rows = rows[:connLimit]
-	}
 
 	s.WriteString(m.renderTacticalTable("Active Network Connections", headers, widths, rows))
 
-	return s.String()
+	m.NetViewport.SetContent(s.String())
 }

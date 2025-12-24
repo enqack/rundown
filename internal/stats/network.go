@@ -7,32 +7,68 @@ import (
 )
 
 var (
-	lastNetSent uint64
-	lastNetRecv uint64
-	lastNetTime time.Time
+	lastIfaceStats map[string]net.IOCountersStat
+	lastNetTime    time.Time
 )
+
+func init() {
+	lastIfaceStats = make(map[string]net.IOCountersStat)
+}
 
 // collectNetwork gathers network I/O statistics and link speed
 func collectNetwork(s *SystemStats) {
-	netIO, err := net.IOCounters(false)
-	if err == nil && len(netIO) > 0 {
-		s.NetSent = netIO[0].BytesSent
-		s.NetRecv = netIO[0].BytesRecv
-
-		now := time.Now()
-		if !lastNetTime.IsZero() {
-			duration := now.Sub(lastNetTime).Seconds()
-			if duration > 0 {
-				s.NetSentDelta = uint64(float64(s.NetSent-lastNetSent) / duration)
-				s.NetRecvDelta = uint64(float64(s.NetRecv-lastNetRecv) / duration)
-			}
-		}
-		lastNetSent = s.NetSent
-		lastNetRecv = s.NetRecv
-		lastNetTime = now
+	// Collect per-interface counters
+	ifaces, err := net.IOCounters(true)
+	if err != nil || len(ifaces) == 0 {
+		s.LinkSpeed = detectLinkSpeed()
+		return
 	}
 
-	// Link Speed (approximate default interface)
+	now := time.Now()
+	var totalSent, totalRecv uint64
+	var duration float64
+	if !lastNetTime.IsZero() {
+		duration = now.Sub(lastNetTime).Seconds()
+	}
+
+	for _, iface := range ifaces {
+		// Aggregate global totals
+		totalSent += iface.BytesSent
+		totalRecv += iface.BytesRecv
+
+		stat := InterfaceStat{
+			Name: iface.Name,
+			Sent: iface.BytesSent,
+			Recv: iface.BytesRecv,
+		}
+
+		// Calculate deltas if we have previous state
+		if duration > 0 {
+			if last, ok := lastIfaceStats[iface.Name]; ok {
+				stat.SentDelta = uint64(float64(iface.BytesSent-last.BytesSent) / duration)
+				stat.RecvDelta = uint64(float64(iface.BytesRecv-last.BytesRecv) / duration)
+			}
+		}
+
+		s.Interfaces = append(s.Interfaces, stat)
+		lastIfaceStats[iface.Name] = iface
+	}
+
+	// Update global aggregate metrics for HUD consistency
+	s.NetSent = totalSent
+	s.NetRecv = totalRecv
+
+	if duration > 0 {
+		var aggSentDelta, aggRecvDelta uint64
+		for _, iface := range s.Interfaces {
+			aggSentDelta += iface.SentDelta
+			aggRecvDelta += iface.RecvDelta
+		}
+		s.NetSentDelta = aggSentDelta
+		s.NetRecvDelta = aggRecvDelta
+	}
+
+	lastNetTime = now
 	s.LinkSpeed = detectLinkSpeed()
 }
 

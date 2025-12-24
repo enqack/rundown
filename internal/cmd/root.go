@@ -31,7 +31,7 @@ func init() {
 		"Color theme: base16, cyberpunk, monochrome, phosphor")
 
 	// Bind flags to viper
-	viper.BindPFlag("theme", RootCmd.PersistentFlags().Lookup("theme"))
+	_ = viper.BindPFlag("theme", RootCmd.PersistentFlags().Lookup("theme"))
 }
 
 func initConfig() {
@@ -42,12 +42,19 @@ func initConfig() {
 	viper.AddConfigPath(".")
 
 	// Read config if it exists (don't error if it doesn't)
-	viper.ReadInConfig()
+	_ = viper.ReadInConfig()
 }
 
 func runApp(cmd *cobra.Command, args []string) {
 	// Get theme from viper (respects config file and flags)
 	selectedTheme := viper.GetString("theme")
+
+	// Validate theme name
+	if !theme.ValidateTheme(selectedTheme) {
+		fmt.Fprintf(os.Stderr, "Error: Invalid theme '%s'\n", selectedTheme)
+		fmt.Fprintf(os.Stderr, "Available themes: %v\n", theme.AvailableThemes())
+		os.Exit(1)
+	}
 
 	// Initialize theme
 	theme.Init(selectedTheme)

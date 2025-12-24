@@ -19,7 +19,15 @@ func collectProcesses(s *SystemStats) []*process.Process {
 	var cpuProcs []ProcessInfo
 	var memProcs []ProcessInfo
 
+	// Reset counters
+	s.ProcTotal = 0
+	s.ProcRunning = 0
+	s.ProcSleeping = 0
+	s.ProcStopped = 0
+	s.ProcZombie = 0
+
 	for _, p := range procs {
+		s.ProcTotal++
 		name, _ := p.Name()
 		user, _ := p.Username()
 		statusStrSlice, _ := p.Status()
@@ -27,6 +35,19 @@ func collectProcesses(s *SystemStats) []*process.Process {
 		if len(statusStrSlice) > 0 && len(statusStrSlice[0]) > 0 {
 			state = statusStrSlice[0][0:1]
 		}
+
+		// Count states
+		switch state {
+		case "R":
+			s.ProcRunning++
+		case "S", "I": // Sleep or Idle
+			s.ProcSleeping++
+		case "T":
+			s.ProcStopped++
+		case "Z":
+			s.ProcZombie++
+		}
+
 		nice, _ := p.Nice()
 
 		memInfo, _ := p.MemoryInfo()
@@ -67,6 +88,10 @@ func collectProcesses(s *SystemStats) []*process.Process {
 			Cmdline:  cmdline,
 		}
 
+		// Always add to the full process list
+		s.Processes = append(s.Processes, pinfo)
+
+		// Filter for top views
 		if pinfo.CPU > 0.1 || pinfo.Memory > 0.1 {
 			cpuProcs = append(cpuProcs, pinfo)
 			memProcs = append(memProcs, pinfo)

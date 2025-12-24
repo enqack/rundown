@@ -19,7 +19,9 @@ func New(w, h int) *Calc {
 // UsableWidth returns the inner width of the main container.
 // Logic: TerminalWidth - ContainerFrame.
 func (l *Calc) UsableWidth() int {
+	// TerminalWidth - ContainerFrame - SafetyBuffer(2)
 	w := l.TermW - theme.ContainerStyle.GetHorizontalFrameSize()
+
 	if w < 20 {
 		return 20
 	}
@@ -29,10 +31,8 @@ func (l *Calc) UsableWidth() int {
 // UsableHeight returns the inner height of the main container, safe for content.
 // Logic: TerminalHeight - ContainerFrame - Header/Footer Chrome - SafetyMargin.
 func (l *Calc) UsableHeight() int {
-	// Full terminal - Container Frame - Header (Tabs(2)+Blank(2)=4) - Footer (1)
-	// Total Chrome = 5.
-	// Safety Margin = 1.
-	h := l.TermH - theme.ContainerStyle.GetVerticalFrameSize() - 6
+	// Full terminal - Container Frame - Header (Tabs(2)+Blank(2)=4) - Footer (1) - Safety(2)
+	h := l.TermH - theme.ContainerStyle.GetVerticalFrameSize() - 7
 	if h < 5 {
 		return 5
 	}
@@ -63,13 +63,12 @@ func (l *Calc) BoxContentWidth(outerWidth int) int {
 }
 
 // GraphWidth returns the safe width for a graph/progress bar starting from the CONTENT width of its parent.
-// Logic: ContentWidth - SafetyMargin(4).
+// Logic: ContentWidth.
 func (l *Calc) GraphWidth(contentWidth int) int {
-	w := contentWidth - 4
-	if w < 0 {
+	if contentWidth < 0 {
 		return 0
 	}
-	return w
+	return contentWidth
 }
 
 // SplitTwoColumns divides a total width into two columns with an optional gap.
@@ -84,8 +83,20 @@ func (l *Calc) SplitTwoColumns(totalWidth int, gap int) (int, int) {
 	return left, right
 }
 
-// CalculateTableDynamicWidth calculates the width for a dynamic table column.
-// Logic: (TotalWidth - FixedColumns - PaddingOverhead).
+// SplitThreeColumns divides a total width into three columns with optional gaps.
+// Returns the outer widths of the three columns (Left, Middle, Right).
+func (l *Calc) SplitThreeColumns(totalWidth int, gap int) (int, int, int) {
+	avail := totalWidth - (gap * 2)
+	if avail < 0 {
+		return 0, 0, 0
+	}
+	col := avail / 3
+	left := col
+	mid := col
+	right := avail - left - mid
+	return left, mid, right
+}
+
 func (l *Calc) CalculateTableDynamicWidth(totalWidth int, fixedColumnsWidths []int, columnPadding int) int {
 	used := 0
 	for _, w := range fixedColumnsWidths {
@@ -101,4 +112,38 @@ func (l *Calc) CalculateTableDynamicWidth(totalWidth int, fixedColumnsWidths []i
 		return 1
 	}
 	return rem
+}
+
+// SplitColumns divides a total width into N columns with a uniform gap.
+// Returns a slice of outer widths for each column.
+func (l *Calc) SplitColumns(totalWidth int, count int, gap int) []int {
+	if count <= 0 {
+		return nil
+	}
+	if count == 1 {
+		return []int{totalWidth}
+	}
+
+	// Total width available for content = Total - ((N-1) * gap)
+	totalGap := (count - 1) * gap
+	avail := totalWidth - totalGap
+	if avail < 0 {
+		// Degenerate case: return 0 widths
+		widths := make([]int, count)
+		return widths
+	}
+
+	// Base width for each column
+	base := avail / count
+	remainder := avail % count
+
+	widths := make([]int, count)
+	for i := 0; i < count; i++ {
+		widths[i] = base
+		// Distribute remainder pixels to the first few columns
+		if i < remainder {
+			widths[i]++
+		}
+	}
+	return widths
 }

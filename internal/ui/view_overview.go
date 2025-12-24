@@ -11,84 +11,96 @@ import (
 )
 
 func (m Model) overviewView() string {
+	return m.OverviewViewport.View()
+}
+
+func (m *Model) updateOverviewViewport() {
 	var s strings.Builder
 
 	l := layout.New(m.Width, m.Height)
-	// Info section
-	info := fmt.Sprintf("Host: %s | IP: %s | Uptime: %s",
-		m.Stats.HostName, m.Stats.IPAddress, stats.FormatDuration(m.Stats.Uptime))
-	s.WriteString(theme.MetricLabelStyle.Render(info) + "\n\n")
+	s.WriteString(theme.TitleStyle.Render("Overview Statistics") + "\n\n")
+
+	// Host/IP/Uptime Info Boxes (Standardized formatting)
+	hostInfo := fmt.Sprintf("%s: %s", theme.MetricLabelStyle.Render("Host"), m.Stats.HostName)
+	ipInfo := fmt.Sprintf("%s: %s", theme.MetricLabelStyle.Render("IP"), m.Stats.IPAddress)
+	upInfo := fmt.Sprintf("%s: %s", theme.MetricLabelStyle.Render("Uptime"), stats.FormatDuration(m.Stats.Uptime))
+
+	if m.Width > 120 {
+		lw, mw, rw := l.SplitThreeColumns(l.UsableWidth(), 2)
+		hBox := m.renderTacticalBox(lw, hostInfo)
+		iBox := m.renderTacticalBox(mw, ipInfo)
+		uBox := m.renderTacticalBox(rw, upInfo)
+		s.WriteString(m.renderTacticalRow(l.UsableWidth(), 2, hBox, iBox, uBox) + "\n")
+	} else {
+		fullW := l.UsableWidth()
+		content := lipgloss.JoinVertical(lipgloss.Left, hostInfo, ipInfo, upInfo)
+		s.WriteString(m.renderTacticalBox(fullW, content) + "\n")
+	}
+
+	// Process Status (5 Columns)
+	// [Total] [Running] [Sleeping] [Stopped] [Zombie]
+	procWidths := l.SplitColumns(l.UsableWidth(), 5, 1) // 5 columns, 1 char gap
+
+	// Ensure we have correct widths even if very narrow
+	if len(procWidths) == 5 {
+		bTotal := m.renderTacticalBox(procWidths[0], fmt.Sprintf("Total Processes: %d", m.Stats.ProcTotal))
+		bRun := m.renderTacticalBox(procWidths[1], fmt.Sprintf("Running Processes: %d", m.Stats.ProcRunning))
+		bSleep := m.renderTacticalBox(procWidths[2], fmt.Sprintf("Sleeping Processes: %d", m.Stats.ProcSleeping))
+		bStop := m.renderTacticalBox(procWidths[3], fmt.Sprintf("Stopped Processes: %d", m.Stats.ProcStopped))
+		bZom := m.renderTacticalBox(procWidths[4], fmt.Sprintf("Zombie Processes: %d", m.Stats.ProcZombie))
+
+		s.WriteString(m.renderTacticalRow(l.UsableWidth(), 1, bTotal, bRun, bSleep, bStop, bZom) + "\n")
+	} else {
+		// Fallback for extremely narrow terminals
+		s.WriteString(m.renderTacticalBox(l.UsableWidth(), fmt.Sprintf("Procs: %d", m.Stats.ProcTotal)) + "\n")
+	}
 
 	// CPU Overview
-	cpuHeader := theme.MetricLabelStyle.Render(fmt.Sprintf("CPU Usage: %.1f%%", m.Stats.CPUUsage))
-	cpuBar := m.CPUProg.ViewAs(m.Stats.CPUUsage / 100)
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(cpuHeader+"\n"+cpuBar) + "\n")
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), "CPU Usage", m.CPUProg, m.Stats.CPUUsage/100, m.Stats.CPUUsage, "%") + "\n")
 
 	// Memory Overview
-	memHeader := theme.MetricLabelStyle.Render(fmt.Sprintf("Memory: %s / %s (%.1f%%)",
+	memHeader := fmt.Sprintf("Memory: %s / %s",
 		stats.FormatBytes(m.Stats.UsedMemory),
-		stats.FormatBytes(m.Stats.TotalMemory),
-		m.Stats.MemoryUsage))
-	memBar := m.MemProg.ViewAs(m.Stats.MemoryUsage / 100)
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(memHeader+"\n"+memBar) + "\n")
+		stats.FormatBytes(m.Stats.TotalMemory))
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), memHeader, m.MemProg, m.Stats.MemoryUsage/100, m.Stats.MemoryUsage, "%") + "\n")
 
 	// Total Disk Overview (Grand Total)
-	totalDiskHeader := theme.MetricLabelStyle.Render(fmt.Sprintf("Disk Usage: %s / %s (%.1f%%)",
+	diskHeader := fmt.Sprintf("Disk Usage: %s / %s",
 		stats.FormatBytes(m.Stats.DiskUsed),
-		stats.FormatBytes(m.Stats.DiskTotal),
-		float64(m.Stats.DiskUsed)/float64(m.Stats.DiskTotal)*100))
-	totalDiskBar := m.DiskProg.ViewAs(float64(m.Stats.DiskUsed) / float64(m.Stats.DiskTotal))
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(totalDiskHeader+"\n"+totalDiskBar) + "\n")
+		stats.FormatBytes(m.Stats.DiskTotal))
+	diskRatio := float64(m.Stats.DiskUsed) / float64(m.Stats.DiskTotal)
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), diskHeader, m.DiskProg, diskRatio, diskRatio*100, "%") + "\n")
 
 	// Network Overview - Grouped
 	scaleUp := getStepScale(m.Stats.NetSentDelta*8, m.Stats.LinkSpeed)
 	scaleDn := getStepScale(m.Stats.NetRecvDelta*8, m.Stats.LinkSpeed)
 
-	// Single line of info above graph
-	netUpInfo := fmt.Sprintf("Egress: %s/s (Scale: %.0f%%) | Total: %s | Link: %s/s",
-		stats.FormatBytes(m.Stats.NetSentDelta),
-		scaleUp*100,
-		stats.FormatBytes(m.Stats.NetSent),
-		stats.FormatBytes(m.Stats.LinkSpeed/8))
+	netUpTitle := fmt.Sprintf("Egress (Scale: %s/s)", stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleUp)))
+	netDnTitle := fmt.Sprintf("Ingress (Scale: %s/s)", stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleDn)))
 
-	netDnInfo := fmt.Sprintf("Ingress: %s/s (Scale: %.0f%%) | Total: %s | Link: %s/s",
-		stats.FormatBytes(m.Stats.NetRecvDelta),
-		scaleDn*100,
-		stats.FormatBytes(m.Stats.NetRecv),
-		stats.FormatBytes(m.Stats.LinkSpeed/8))
+	upRatio := float64(m.Stats.NetSentDelta*8) / (float64(m.Stats.LinkSpeed) * scaleUp)
+	dnRatio := float64(m.Stats.NetRecvDelta*8) / (float64(m.Stats.LinkSpeed) * scaleDn)
 
 	if m.Width > 120 {
-		// Split View
-		netUpBar := m.NetUpProg.ViewAs(float64(m.Stats.NetSentDelta*8) / (float64(m.Stats.LinkSpeed) * scaleUp))
-		netDnBar := m.NetDnProg.ViewAs(float64(m.Stats.NetRecvDelta*8) / (float64(m.Stats.LinkSpeed) * scaleDn))
-
-		leftW, rightW := l.SplitTwoColumns(l.UsableWidth(), 0)
-		upBox := theme.BoxStyle.Width(l.BoxContentWidth(leftW)).Render(theme.MetricLabelStyle.Render(netUpInfo) + "\n" + netUpBar)
-		dnBox := theme.BoxStyle.Width(l.BoxContentWidth(rightW)).Render(theme.MetricLabelStyle.Render(netDnInfo) + "\n" + netDnBar)
-
-		s.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, upBox, "  ", dnBox) + "\n")
-
+		leftW, rightW := l.SplitTwoColumns(l.UsableWidth(), 2)
+		upBox := m.renderTacticalGauge(leftW, netUpTitle, m.NetUpProg, upRatio, upRatio*100, "%")
+		dnBox := m.renderTacticalGauge(rightW, netDnTitle, m.NetDnProg, dnRatio, dnRatio*100, "%")
+		s.WriteString(m.renderTacticalRow(l.UsableWidth(), 2, upBox, dnBox) + "\n")
 	} else {
-		// Stacked View
-		netUpBar := m.NetUpProg.ViewAs(float64(m.Stats.NetSentDelta*8) / (float64(m.Stats.LinkSpeed) * scaleUp))
-		netDnBar := m.NetDnProg.ViewAs(float64(m.Stats.NetRecvDelta*8) / (float64(m.Stats.LinkSpeed) * scaleDn))
-
-		s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(
-			theme.MetricLabelStyle.Render(netUpInfo)+"\n"+netUpBar+"\n\n"+
-				theme.MetricLabelStyle.Render(netDnInfo)+"\n"+netDnBar) + "\n")
+		upBar := m.renderTacticalGauge(l.UsableWidth(), netUpTitle, m.NetUpProg, upRatio, upRatio*100, "%")
+		dnBar := m.renderTacticalGauge(l.UsableWidth(), netDnTitle, m.NetDnProg, dnRatio, dnRatio*100, "%")
+		s.WriteString(upBar + "\n" + dnBar + "\n")
 	}
 
-	thermal := theme.MetricLabelStyle.Render("Thermal Sensors") + "\n\n"
-	thermalCpuBar := m.getTempProg("CPU Package").ViewAs(m.Stats.CPUTemp / 100)
-	thermal += fmt.Sprintf("CPU Package: %.1f°C\n%s\n", m.Stats.CPUTemp, thermalCpuBar)
+	// Thermal Sensors (Individual Gauges for standard height)
+	pCPU := m.getTempProg("CPU Package")
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), "CPU Thermal Package", pCPU, m.Stats.CPUTemp/110.0, m.Stats.CPUTemp, "°C") + "\n")
 
 	for i, g := range m.Stats.GPUTemps {
 		gname := fmt.Sprintf("GPU %d (%s)", i, g.SensorKey)
-		gBar := m.getTempProg(gname).ViewAs(g.Temperature / 100)
-		thermal += fmt.Sprintf("\n%s: %.1f°C\n%s\n", gname, g.Temperature, gBar)
+		pGPU := m.getTempProg(gname)
+		s.WriteString(m.renderTacticalGauge(l.UsableWidth(), gname, pGPU, g.Temperature/110.0, g.Temperature, "°C") + "\n")
 	}
 
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(lipgloss.NewStyle().Width(l.BoxContentWidth(l.BoxContentWidth(l.UsableWidth()))).Render(thermal)) + "\n")
-
-	return s.String()
+	m.OverviewViewport.SetContent(s.String())
 }

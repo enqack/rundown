@@ -7,7 +7,11 @@ import (
 )
 
 func (m Model) splashView() string {
-	content := theme.SplashTitleStyle.Render("RUNDOWN") + "\n" +
+	title := `█▀▀█ █  █ █▀▀▄ █▀▀▄ █▀▀█ █   █ █▀▀▄ 
+█▄▄▀ █  █ █  █ █  █ █  █ █ █ █ █  █ 
+█ ▀█ ▀▄▄▀ █  █ █▄▄▀ ▀▄▄▀ ▀▄▀▄▀ █  █`
+
+	content := theme.SplashTitleStyle.Render(title) + "\n" +
 		theme.LogoStyle.Render("Rundown in progress!") + "\n\n" +
 		m.LoadProg.ViewAs(m.LoadVal) + "\n\n" +
 		m.LoadingMsg + "\n"

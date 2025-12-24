@@ -1,6 +1,7 @@
 package theme
 
 import (
+	"github.com/charmbracelet/bubbles/progress"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/lucasb-eyer/go-colorful"
 )
@@ -18,6 +19,10 @@ var (
 	BgColor        lipgloss.Color
 	FgColor        lipgloss.Color
 
+	// Gradient colors for progress bars
+	GradientStart lipgloss.Color
+	GradientEnd   lipgloss.Color
+
 	// Styles
 	TitleStyle         lipgloss.Style
 	BoxStyle           lipgloss.Style
@@ -30,7 +35,23 @@ var (
 	TableSelectedStyle lipgloss.Style
 	SplashTitleStyle   lipgloss.Style
 	LogoStyle          lipgloss.Style
+	SubtitleStyle      lipgloss.Style
 )
+
+// ValidateTheme checks if a theme name is valid
+func ValidateTheme(name string) bool {
+	switch name {
+	case "base16", "cyberpunk", "monochrome", "phosphor":
+		return true
+	default:
+		return false
+	}
+}
+
+// AvailableThemes returns a list of available theme names
+func AvailableThemes() []string {
+	return []string{"base16", "cyberpunk", "monochrome", "phosphor"}
+}
 
 // Init initializes the theme system with the specified theme name
 func Init(themeName string) {
@@ -55,6 +76,10 @@ func Init(themeName string) {
 	CriticalColor = current.Critical
 	BgColor = current.Background
 	FgColor = current.Foreground
+
+	// Set gradient colors based on theme
+	GradientStart = current.Secondary
+	GradientEnd = current.Primary
 
 	// Initialize styles
 	initStyles()
@@ -114,6 +139,26 @@ func initStyles() {
 	LogoStyle = lipgloss.NewStyle().
 		Foreground(AccentColor).
 		Bold(true)
+
+	SubtitleStyle = lipgloss.NewStyle().
+		Foreground(SecondaryColor).
+		Italic(true)
+}
+
+// NewThemedProgress creates a new progress bar with theme-based gradient
+func NewThemedProgress() progress.Model {
+	// base16 uses ANSI colors which don't work with WithGradient
+	// Use default gradient for base16, custom for others
+	if current.Name == "base16" {
+		return progress.New(
+			progress.WithDefaultGradient(),
+			progress.WithoutPercentage(),
+		)
+	}
+	return progress.New(
+		progress.WithGradient(string(GradientStart), string(GradientEnd)),
+		progress.WithoutPercentage(),
+	)
 }
 
 func Gradient(start, end string, steps int) []string {

@@ -5,34 +5,43 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/charmbracelet/lipgloss"
 	"github.com/enqack/rundown/internal/layout"
 	"github.com/enqack/rundown/internal/stats"
 	"github.com/enqack/rundown/internal/theme"
 )
 
 func (m Model) memView() string {
+	return m.MemViewport.View()
+}
+
+func (m *Model) updateMemViewport() {
 	var s strings.Builder
 	s.WriteString(theme.TitleStyle.Render("Detailed Memory Statistics") + "\n\n")
 
-	memUsage := theme.MetricLabelStyle.Render(fmt.Sprintf("Used: %s / %s (%.1f%%)",
-		stats.FormatBytes(m.Stats.UsedMemory),
-		stats.FormatBytes(m.Stats.TotalMemory),
-		m.Stats.MemoryUsage)) + "\n" + m.MemProg.ViewAs(m.Stats.MemoryUsage/100)
 	l := layout.New(m.Width, m.Height)
-	s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(memUsage) + "\n\n")
+
+	memHeader := fmt.Sprintf("Memory Usage: %s / %s",
+		stats.FormatBytes(m.Stats.UsedMemory),
+		stats.FormatBytes(m.Stats.TotalMemory))
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), memHeader, m.MemProg, m.Stats.MemoryUsage/100, m.Stats.MemoryUsage, "%") + "\n")
 
 	// Swap Memory
 	if m.Stats.SwapTotal > 0 {
-		swapUsage := theme.MetricLabelStyle.Render(fmt.Sprintf("Swap: %s / %s (%.1f%%)",
-			stats.FormatBytes(m.Stats.SwapUsed),
-			stats.FormatBytes(m.Stats.SwapTotal),
-			m.Stats.SwapPercent)) + "\n" + m.SwapProg.ViewAs(m.Stats.SwapPercent/100)
-		s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(swapUsage) + "\n\n")
+		swapHeader := "Swap Usage:"
+
+		// Inline Detailed Swap Devices
+		for _, dev := range m.Stats.SwapDevices {
+			swapHeader += fmt.Sprintf(" (%s) %s / %s",
+				dev.Name,
+				stats.FormatBytes(dev.UsedBytes),
+				stats.FormatBytes(dev.TotalBytes))
+		}
+
+		s.WriteString(m.renderTacticalGauge(l.UsableWidth(), swapHeader, m.SwapProg, m.Stats.SwapPercent/100, m.Stats.SwapPercent, "%") + "\n")
+
 	}
 
 	headers := []string{"PID", "USER", "%CPU", "%MEM", "TIME+", "COMMAND"}
-	// Fixed cols: 10, 10, 8, 8, 10. Padding: 2 per col.
 	fixedWidths := []int{10, 10, 8, 8, 10}
 
 	availWidth := l.BoxContentWidth(l.UsableWidth())
@@ -40,20 +49,7 @@ func (m Model) memView() string {
 
 	widths := []int{10, 10, 8, 8, 10, cmdW}
 	var rows [][]string
-	// Calculate height of top content to determine remaining space for table
-	topContent := s.String()
-	// renderTacticalTable adds title (1) + blank (2) + header (1+border?)
 
-	// Actually, let's just measure what we have so far.
-	usedHeight := lipgloss.Height(topContent)
-
-	// Table Overhead: Title(1) + Blank(2) + Header(3 includes border/padding) + FooterGap?
-	tableOverhead := 6
-
-	limit := l.UsableHeight() - usedHeight - tableOverhead
-	if limit < 1 {
-		limit = 1
-	}
 	for _, p := range m.Stats.TopMem {
 		rows = append(rows, []string{
 			fmt.Sprintf("%d", p.PID),
@@ -84,11 +80,7 @@ func (m Model) memView() string {
 		}
 	})
 
-	if len(rows) > limit {
-		rows = rows[:limit]
-	}
-
 	s.WriteString(m.renderTacticalTable("Top Memory Processes", headers, widths, rows))
 
-	return s.String()
+	m.MemViewport.SetContent(s.String())
 }

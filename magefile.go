@@ -81,6 +81,12 @@ func Lint() error {
 	return sh.RunV("golangci-lint", "run", "./...")
 }
 
+// Vet runs go vet
+func Vet() error {
+	fmt.Println("Running vet...")
+	return sh.RunV(goexe, "vet", "./...")
+}
+
 // Dev builds and runs rundown with base16 theme
 func Dev() error {
 	mg.Deps(Build)
@@ -153,7 +159,7 @@ func Deps() error {
 
 // All runs format, lint, test, and build
 func All() error {
-	mg.Deps(Fmt, Test, Build)
+	mg.Deps(Fmt, Lint, Vet, Test, Build)
 	fmt.Println("✅ All tasks completed successfully!")
 	return nil
 }

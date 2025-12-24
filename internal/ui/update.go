@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/enqack/rundown/internal/layout"
 	"github.com/enqack/rundown/internal/stats"
@@ -16,9 +17,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "tab":
-			m.Tab = (m.Tab + 1) % 6
+			m.Tab = (m.Tab + 1) % 7 // Cycle through 7 tabs (0-6)
 		case "shift+tab":
-			m.Tab = (m.Tab + 5) % 6 // Go backward (equivalent to -1 with wrapping)
+			m.Tab = (m.Tab + 6) % 7 // Go backward (equivalent to -1 with wrapping for 7 tabs)
 		case "1":
 			m.Tab = TabOverview
 		case "2":
@@ -31,6 +32,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.Tab = TabNet
 		case "6":
 			m.Tab = TabTemp
+		case "7":
+			m.Tab = TabProc
 		case "c":
 			m.SortBy = "cpu"
 		case "m":
@@ -48,28 +51,72 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "f":
 			m.SortBy = "foreign"
 		case "up", "k":
-			if m.Tab == TabTemp {
-				m.TempViewport.LineUp(1)
-			} else if m.Tab == TabCPU {
-				m.CPUViewport.LineUp(1)
+			switch m.Tab {
+			case TabOverview:
+				m.OverviewViewport.ScrollUp(1)
+			case TabCPU:
+				m.CPUViewport.ScrollUp(1)
+			case TabMem:
+				m.MemViewport.ScrollUp(1)
+			case TabDisk:
+				m.DiskViewport.ScrollUp(1)
+			case TabNet:
+				m.NetViewport.ScrollUp(1)
+			case TabTemp:
+				m.TempViewport.ScrollUp(1)
+			case TabProc:
+				m.ProcViewport.ScrollUp(1)
 			}
 		case "down", "j":
-			if m.Tab == TabTemp {
-				m.TempViewport.LineDown(1)
-			} else if m.Tab == TabCPU {
-				m.CPUViewport.LineDown(1)
+			switch m.Tab {
+			case TabOverview:
+				m.OverviewViewport.ScrollDown(1)
+			case TabCPU:
+				m.CPUViewport.ScrollDown(1)
+			case TabMem:
+				m.MemViewport.ScrollDown(1)
+			case TabDisk:
+				m.DiskViewport.ScrollDown(1)
+			case TabNet:
+				m.NetViewport.ScrollDown(1)
+			case TabTemp:
+				m.TempViewport.ScrollDown(1)
+			case TabProc:
+				m.ProcViewport.ScrollDown(1)
 			}
 		case "pgup":
-			if m.Tab == TabTemp {
-				m.TempViewport.PageUp()
-			} else if m.Tab == TabCPU {
+			switch m.Tab {
+			case TabOverview:
+				m.OverviewViewport.PageUp()
+			case TabCPU:
 				m.CPUViewport.PageUp()
+			case TabMem:
+				m.MemViewport.PageUp()
+			case TabDisk:
+				m.DiskViewport.PageUp()
+			case TabNet:
+				m.NetViewport.PageUp()
+			case TabTemp:
+				m.TempViewport.PageUp()
+			case TabProc:
+				m.ProcViewport.PageUp()
 			}
 		case "pgdn":
-			if m.Tab == TabTemp {
-				m.TempViewport.PageDown()
-			} else if m.Tab == TabCPU {
+			switch m.Tab {
+			case TabOverview:
+				m.OverviewViewport.PageDown()
+			case TabCPU:
 				m.CPUViewport.PageDown()
+			case TabMem:
+				m.MemViewport.PageDown()
+			case TabDisk:
+				m.DiskViewport.PageDown()
+			case TabNet:
+				m.NetViewport.PageDown()
+			case TabTemp:
+				m.TempViewport.PageDown()
+			case TabProc:
+				m.ProcViewport.PageDown()
 			}
 		case "+", "=":
 			// Increase update interval (max 10 seconds)
@@ -90,57 +137,80 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Unified Layout Calculator
 		l := layout.New(m.Width, m.Height)
 
-		m.CPUViewport.Width = l.UsableWidth()
-		m.CPUViewport.Height = l.UsableHeight()
-
-		// Full Box sizing
-		fullBoxContentW := l.BoxContentWidth(l.UsableWidth())
-		graphSafeW := l.GraphWidth(fullBoxContentW)
-
-		m.MemProg.Width = graphSafeW
-		m.SwapProg.Width = graphSafeW
-		m.DiskProg.Width = graphSafeW
-		m.LoadProg.Width = graphSafeW
-		m.CPUProg.Width = graphSafeW
+		// Global Progress Bars
+		m.CPUProg.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+		m.MemProg.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+		m.DiskProg.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+		m.SwapProg.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+		m.NetUpProg.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+		m.NetDnProg.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
 
 		// Disk Progs
 		for k := range m.DiskProgs {
 			p := m.DiskProgs[k]
-			p.Width = graphSafeW
+			p.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
 			m.DiskProgs[k] = p
 		}
 
 		// Temp Progs
 		for k := range m.TempProgs {
 			p := m.TempProgs[k]
-			p.Width = graphSafeW
+			p.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
 			m.TempProgs[k] = p
 		}
 
-		// Split View (Net/Cores)
-		leftBoxW, _ := l.SplitTwoColumns(l.UsableWidth(), 0)
+		// Viewport Resizing
+		m.CPUViewport.Width = l.UsableWidth()
+		m.CPUViewport.Height = l.UsableHeight()
+		m.MemViewport.Width = l.UsableWidth()
+		m.MemViewport.Height = l.UsableHeight()
+		m.DiskViewport.Width = l.UsableWidth()
+		m.DiskViewport.Height = l.UsableHeight()
+		m.NetViewport.Width = l.UsableWidth()
+		m.NetViewport.Height = l.UsableHeight()
+		m.OverviewViewport.Width = l.UsableWidth()
+		m.OverviewViewport.Height = l.UsableHeight()
+		m.TempViewport.Width = l.UsableWidth()
+		m.TempViewport.Height = l.UsableHeight()
+		m.ProcViewport.Width = l.UsableWidth()
+		m.ProcViewport.Height = l.UsableHeight()
 
+		// Split View (Net/Cores)
+		leftBoxW, _ := l.SplitTwoColumns(l.UsableWidth(), 2)
 		splitBoxContentW := l.BoxContentWidth(leftBoxW)
 		splitGraphSafeW := l.GraphWidth(splitBoxContentW)
+		fullGraphSafeW := l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
 
-		m.NetUpProg.Width = splitGraphSafeW
-		if m.Width <= 120 {
-			m.NetUpProg.Width = graphSafeW
+		for k := range m.IfaceUpProgs {
+			p := m.IfaceUpProgs[k]
+			p.Width = splitGraphSafeW
+			if m.Width <= 120 {
+				p.Width = fullGraphSafeW
+			}
+			m.IfaceUpProgs[k] = p
 		}
-		m.NetDnProg.Width = m.NetUpProg.Width
-
-		// CPU Cores Progs
+		for k := range m.IfaceDnProgs {
+			p := m.IfaceDnProgs[k]
+			p.Width = splitGraphSafeW
+			if m.Width <= 120 {
+				p.Width = fullGraphSafeW
+			}
+			m.IfaceDnProgs[k] = p
+		}
 		for i := range m.CPUCoresProgs {
 			m.CPUCoresProgs[i].Width = splitGraphSafeW
 			if m.Width <= 120 {
-				m.CPUCoresProgs[i].Width = graphSafeW
+				m.CPUCoresProgs[i].Width = fullGraphSafeW
 			}
 		}
 
-		m.TempViewport.Width = l.UsableWidth()
-		m.TempViewport.Height = l.UsableHeight()
 		m.updateCpuViewport()
+		m.updateOverviewViewport()
+		m.updateMemViewport()
+		m.updateDiskViewport()
+		m.updateNetViewport()
 		m.updateTempViewport()
+		m.updateProcViewport()
 
 	case tickMsg:
 		m.Stats = msg.Stats
@@ -151,7 +221,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			// Check what data we actually have to determine progress
 			stepsCompleted := 0
-			totalSteps := 5.0
+			totalSteps := 6.0 // Increased to 6 for processes
 
 			if len(m.Stats.CPUCores) > 0 {
 				stepsCompleted++
@@ -168,28 +238,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.Stats.NetSent > 0 {
 				stepsCompleted++
 			}
+			if len(m.Stats.Processes) > 0 { // Check for processes
+				stepsCompleted++
+			}
 
 			m.LoadVal = float64(stepsCompleted) / totalSteps
 
 			if m.LoadVal >= 1.0 {
 				m.Loading = false
+				m.updateOverviewViewport()
 				m.updateCpuViewport()
+				m.updateMemViewport()
+				m.updateDiskViewport()
+				m.updateNetViewport()
 				m.updateTempViewport()
+				m.updateProcViewport()
 			} else {
 				// Determine next message based on what's missing
 				var nextStep string
 				if len(m.Stats.CPUCores) == 0 {
-					nextStep = "Scanning CPU..."
+					nextStep = "Scanning CPU."
 				} else if m.Stats.TotalMemory == 0 {
-					nextStep = "Reading Memory..."
+					nextStep = "Reading Memory."
 				} else if len(m.Stats.Disks) == 0 {
-					nextStep = "Mounting Disks..."
+					nextStep = "Mounting Disks."
 				} else if len(m.Stats.TopCPU) == 0 {
-					nextStep = "Listing Processes..."
+					nextStep = "Listing Processes."
 				} else if m.Stats.NetSent == 0 {
-					nextStep = "Detecting Network..."
+					nextStep = "Detecting Network."
+				} else if len(m.Stats.Processes) == 0 { // New check for processes
+					nextStep = "Gathering Process Info."
 				} else {
-					nextStep = "Finalizing..."
+					nextStep = "Finalizing."
 				}
 				return m, tickMsgCmd(nextStep)
 			}
@@ -198,11 +278,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.Stats = msg.Stats
 			m.LastSync = time.Now()
-			if m.Tab == TabTemp {
-				m.updateTempViewport()
-			} else if m.Tab == TabCPU {
-				m.updateCpuViewport()
-			}
+			// Update all viewports to ensure data is ready when switching tabs
+			m.updateOverviewViewport()
+			m.updateCpuViewport()
+			m.updateMemViewport()
+			m.updateDiskViewport()
+			m.updateNetViewport()
+			m.updateTempViewport()
+			m.updateProcViewport()
 		}
 		// Use configurable interval
 		return m, tea.Tick(m.UpdateInterval, func(t time.Time) tea.Msg {
@@ -216,11 +299,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	}
 
+	var v *viewport.Model
 	var cmd tea.Cmd
-	if m.Tab == TabTemp {
-		m.TempViewport, cmd = m.TempViewport.Update(msg)
-	} else if m.Tab == TabCPU {
-		m.CPUViewport, cmd = m.CPUViewport.Update(msg)
+	switch m.Tab {
+	case TabOverview:
+		v = &m.OverviewViewport
+	case TabCPU:
+		v = &m.CPUViewport
+	case TabMem:
+		v = &m.MemViewport
+	case TabDisk:
+		v = &m.DiskViewport
+	case TabNet:
+		v = &m.NetViewport
+	case TabTemp:
+		v = &m.TempViewport
+	case TabProc:
+		v = &m.ProcViewport
 	}
+
+	if v != nil {
+		*v, cmd = v.Update(msg)
+	}
+
 	return m, cmd
 }

@@ -4,42 +4,56 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/progress"
 	"github.com/enqack/rundown/internal/layout"
 	"github.com/enqack/rundown/internal/stats"
 	"github.com/enqack/rundown/internal/theme"
 )
 
 func (m Model) diskView() string {
+	return m.DiskViewport.View()
+}
+
+func (m *Model) updateDiskViewport() {
 	var s strings.Builder
 	s.WriteString(theme.TitleStyle.Render("Detailed Disk Statistics") + "\n\n")
 
 	l := layout.New(m.Width, m.Height)
+
+	// Total Disk Overview (Grand Total)
+	totalDiskTag := fmt.Sprintf("Total Disk Usage: %s / %s",
+		stats.FormatBytes(m.Stats.DiskUsed),
+		stats.FormatBytes(m.Stats.DiskTotal))
+	diskTotalRatio := float64(m.Stats.DiskUsed) / float64(m.Stats.DiskTotal)
+	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), totalDiskTag, m.DiskProg, diskTotalRatio, diskTotalRatio*100, "%") + "\n")
+
 	for _, d := range m.Stats.Disks {
-		diskHeader := theme.MetricLabelStyle.Render(fmt.Sprintf("Disk (%s): %s / %s (%.1f%%)",
-			d.MountPoint,
+		// Label: Disk <Mount>
+		diskTag := fmt.Sprintf("Disk %s", d.MountPoint)
+		// Inline Device Node
+		diskTag += fmt.Sprintf(" (%s) %s / %s",
+			d.Device,
 			stats.FormatBytes(d.Used),
-			stats.FormatBytes(d.Total),
-			d.Usage))
+			stats.FormatBytes(d.Total))
+
 		dp, ok := m.DiskProgs[d.MountPoint]
 		if !ok {
-			dp = progress.New(progress.WithDefaultGradient())
-			dp.FullColor = string(theme.AccentColor)
-			// Ensure it spans the page with safety margin
-			dp.Width = l.GraphWidth(l.BoxContentWidth(l.UsableWidth()))
+			dp = theme.NewThemedProgress()
 			m.DiskProgs[d.MountPoint] = dp
 		}
-		s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(diskHeader+"\n"+dp.ViewAs(d.Usage/100)) + "\n")
+		s.WriteString(m.renderTacticalGauge(l.UsableWidth(), diskTag, dp, d.Usage/100, d.Usage, "%") + "\n")
 	}
 
 	// Swap (displayed as virtual disk)
 	if m.Stats.SwapTotal > 0 {
-		swapHeader := theme.MetricLabelStyle.Render(fmt.Sprintf("Swap Memory: %s / %s (%.1f%%)",
-			stats.FormatBytes(m.Stats.SwapUsed),
-			stats.FormatBytes(m.Stats.SwapTotal),
-			m.Stats.SwapPercent))
-		s.WriteString(theme.BoxStyle.Width(l.BoxContentWidth(l.UsableWidth())).Render(swapHeader+"\n"+m.SwapProg.ViewAs(m.Stats.SwapPercent/100)) + "\n")
+		swapTag := "Swap Memory"
+		for _, dev := range m.Stats.SwapDevices {
+			swapTag += fmt.Sprintf(" (%s) %s / %s",
+				dev.Name,
+				stats.FormatBytes(dev.UsedBytes),
+				stats.FormatBytes(dev.TotalBytes))
+		}
+		s.WriteString(m.renderTacticalGauge(l.UsableWidth(), swapTag, m.SwapProg, m.Stats.SwapPercent/100, m.Stats.SwapPercent, "%") + "\n")
 	}
 
-	return s.String()
+	m.DiskViewport.SetContent(s.String())
 }
