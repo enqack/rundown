@@ -93,7 +93,7 @@ func initStyles() {
 	BoxStyle = lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(PrimaryColor).
-		Padding(1)
+		Padding(0, 1)
 
 	MetricLabelStyle = lipgloss.NewStyle().
 		Foreground(FgColor).

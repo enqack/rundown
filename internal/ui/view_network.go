@@ -21,16 +21,19 @@ func (m *Model) updateNetViewport() {
 	l := layout.New(m.Width, m.Height)
 
 	// Global Aggregate Graphs
-	scaleUp := getStepScale(m.Stats.NetSentDelta*8, m.Stats.LinkSpeed)
-	scaleDn := getStepScale(m.Stats.NetRecvDelta*8, m.Stats.LinkSpeed)
+	scaleUp := getAdaptiveScale(m.Stats.NetSentDelta*8, m.Stats.LinkSpeed)
+	scaleDn := getAdaptiveScale(m.Stats.NetRecvDelta*8, m.Stats.LinkSpeed)
 
-	netUpTitle := fmt.Sprintf("Global Egress (Scale: %s/s) | Total: %s",
-		stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleUp)), stats.FormatBytes(m.Stats.NetSent))
-	netDnTitle := fmt.Sprintf("Global Ingress (Scale: %s/s) | Total: %s",
-		stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleDn)), stats.FormatBytes(m.Stats.NetRecv))
+	scaleUpPct := (scaleUp / float64(m.Stats.LinkSpeed)) * 100
+	scaleDnPct := (scaleDn / float64(m.Stats.LinkSpeed)) * 100
 
-	upRatio := float64(m.Stats.NetSentDelta*8) / (float64(m.Stats.LinkSpeed) * scaleUp)
-	dnRatio := float64(m.Stats.NetRecvDelta*8) / (float64(m.Stats.LinkSpeed) * scaleDn)
+	netUpTitle := fmt.Sprintf("Global Egress Scale: %s/s (%.1f%%) | Total: %s",
+		stats.FormatBytes(uint64(scaleUp/8)), scaleUpPct, stats.FormatBytes(m.Stats.NetSent))
+	netDnTitle := fmt.Sprintf("Global Ingress Scale: %s/s (%.1f%%) | Total: %s",
+		stats.FormatBytes(uint64(scaleDn/8)), scaleDnPct, stats.FormatBytes(m.Stats.NetRecv))
+
+	upRatio := float64(m.Stats.NetSentDelta*8) / scaleUp
+	dnRatio := float64(m.Stats.NetRecvDelta*8) / scaleDn
 
 	leftBoxW, rightBoxW := l.SplitTwoColumns(l.UsableWidth(), 2)
 
@@ -60,14 +63,17 @@ func (m *Model) updateNetViewport() {
 		upProg := m.IfaceUpProgs[iface.Name]
 		dnProg := m.IfaceDnProgs[iface.Name]
 
-		iScaleUp := getStepScale(iface.SentDelta*8, m.Stats.LinkSpeed)
-		iScaleDn := getStepScale(iface.RecvDelta*8, m.Stats.LinkSpeed)
+		iScaleUp := getAdaptiveScale(iface.SentDelta*8, m.Stats.LinkSpeed)
+		iScaleDn := getAdaptiveScale(iface.RecvDelta*8, m.Stats.LinkSpeed)
 
-		iUpTitle := fmt.Sprintf("%s Egress: %s/s", iface.Name, stats.FormatBytes(iface.SentDelta))
-		iDnTitle := fmt.Sprintf("%s Ingress: %s/s", iface.Name, stats.FormatBytes(iface.RecvDelta))
+		iScaleUpPct := (iScaleUp / float64(m.Stats.LinkSpeed)) * 100
+		iScaleDnPct := (iScaleDn / float64(m.Stats.LinkSpeed)) * 100
 
-		upRatio := float64(iface.SentDelta*8) / (float64(m.Stats.LinkSpeed) * iScaleUp)
-		dnRatio := float64(iface.RecvDelta*8) / (float64(m.Stats.LinkSpeed) * iScaleDn)
+		iUpTitle := fmt.Sprintf("%s Egress: %s/s | Scale: %s/s (%.1f%%)", iface.Name, stats.FormatBytes(iface.SentDelta), stats.FormatBytes(uint64(iScaleUp/8)), iScaleUpPct)
+		iDnTitle := fmt.Sprintf("%s Ingress: %s/s | Scale: %s/s (%.1f%%)", iface.Name, stats.FormatBytes(iface.RecvDelta), stats.FormatBytes(uint64(iScaleDn/8)), iScaleDnPct)
+
+		upRatio := float64(iface.SentDelta*8) / iScaleUp
+		dnRatio := float64(iface.RecvDelta*8) / iScaleDn
 
 		if m.Width > 120 {
 			upBox := m.renderTacticalGauge(leftBoxW, iUpTitle, upProg, upRatio, upRatio*100, "%")

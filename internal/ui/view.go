@@ -51,6 +51,8 @@ func (m Model) View() string {
 		body = m.tempView()
 	case TabProc:
 		body = m.procView()
+	case TabHelp:
+		body = m.helpView()
 	}
 	s.WriteString(body)
 
@@ -99,6 +101,8 @@ func (m Model) getActiveViewport() viewport.Model {
 		return m.TempViewport
 	case TabProc:
 		return m.ProcViewport
+	case TabHelp:
+		return m.HelpViewport
 	default:
 		return m.OverviewViewport
 	}
@@ -107,16 +111,6 @@ func (m Model) getActiveViewport() viewport.Model {
 func (m Model) renderFooter() string {
 	l := layout.New(m.Width, m.Height)
 	footerW := l.UsableWidth()
-
-	var keys []string
-	keys = append(keys, "Tab: Switch", "1-6: Select")
-
-	switch m.Tab {
-	case TabMem, TabCPU, TabProc:
-		keys = append(keys, "c/m/p/n/u/t: Sort")
-	case TabNet:
-		keys = append(keys, "l/f/p/n/s: Sort")
-	}
 
 	// Format interval
 	intervalMs := m.UpdateInterval.Milliseconds()
@@ -129,77 +123,30 @@ func (m Model) renderFooter() string {
 
 	leftStr := fmt.Sprintf("Last updated: %s | Interval: %s", m.LastSync.Format("15:04:05"), intervalText)
 
-	// Scroll Indicator (Center Piece)
+	// Scroll/Sector Indicator
 	v := m.getActiveViewport()
-
-	// Add scroll keybinding after sort controls if content is scrollable
-	if v.TotalLineCount() > v.Height && v.Height > 0 {
-		keys = append(keys, "j/k: Scroll", "Home/End: Jump")
-	}
-
-	keys = append(keys, "+/-: Speed", "q: Quit")
-
-	rightStr := strings.Join(keys, " | ")
-
-	scrollInfo := ""
+	sectorInfo := ""
 	if v.TotalLineCount() > v.Height && v.Height > 0 {
 		total := v.TotalLineCount()
-		sector := (v.YOffset / v.Height) + 1
+		// Calculate sector based on the bottom line of the viewport
+		// This ensures that when we are at the bottom, we are in the last sector.
+		bottomLine := v.YOffset + v.Height - 1
+		sector := (bottomLine / v.Height) + 1
 		maxSector := (total + v.Height - 1) / v.Height
-		scrollInfo = fmt.Sprintf("[SEC %02d/%02d] %3.0f%%", sector, maxSector, v.ScrollPercent()*100)
+		sectorInfo = fmt.Sprintf("[Sector %02d/%02d] ", sector, maxSector)
 	}
+
+	rightStr := fmt.Sprintf("%s?: Help", sectorInfo)
 
 	left := lipgloss.NewStyle().Faint(true).Render(leftStr)
-	legend := lipgloss.NewStyle().Faint(true).Render(rightStr)
-	center := lipgloss.NewStyle().Foreground(theme.SecondaryColor).Bold(true).Render(scrollInfo)
+	right := lipgloss.NewStyle().Foreground(theme.SecondaryColor).Bold(true).Render(rightStr)
 
-	lW := lipgloss.Width(left)
-	rW := lipgloss.Width(legend)
-	cW := lipgloss.Width(center)
-
-	// Balanced Centering Calculation: UsableWidth | Spacer | Center | Spacer | Legend
-	// However, Sync is always far-left, Legend far-right.
-
-	// Total available space for middle gap
-	rem := footerW - lW - rW
-	if rem < cW {
-		// Compaction: Hide legend if terminal is too narrow
-		if footerW > lW+cW+2 {
-			legend = center
-			rem = footerW - lW - cW
-			spacer := lipgloss.NewStyle().Width(rem).Render("")
-			return lipgloss.JoinHorizontal(lipgloss.Top, left, spacer, legend)
-		}
-		return left
-	}
-
-	// Full layout: Left | (SpacerW1) | Center | (SpacerW2) | Right
-	// We want Center to be in the middle of the ENTIRE footer width
-	centerPos := (footerW - cW) / 2
-
-	spacer1W := centerPos - lW
-	if spacer1W < 1 {
-		spacer1W = 1
-	}
-
-	spacer2W := footerW - centerPos - cW - rW
-	if spacer2W < 1 {
-		spacer2W = 1
-	}
-
-	row := lipgloss.JoinHorizontal(lipgloss.Top,
+	// Simple Layout: Left -------- Right
+	return lipgloss.JoinHorizontal(lipgloss.Top,
 		left,
-		lipgloss.NewStyle().Width(spacer1W).Render(""),
-		center,
-		lipgloss.NewStyle().Width(spacer2W).Render(""),
-		legend,
+		lipgloss.NewStyle().Width(footerW-lipgloss.Width(left)-lipgloss.Width(right)).Render(""),
+		right,
 	)
-
-	return lipgloss.NewStyle().
-		Width(footerW).
-		MaxWidth(footerW).
-		MaxHeight(1).
-		Render(row)
 }
 
 func truncate(s string, l int) string {
@@ -330,14 +277,24 @@ func (m Model) renderTacticalTable(title string, headers []string, widths []int,
 	return lipgloss.NewStyle().Width(outerW).MaxWidth(outerW).Render(box)
 }
 
-func getStepScale(usageBps, linkBps uint64) float64 {
-	ratio := float64(usageBps) / float64(linkBps)
-	if ratio <= 0.25 {
-		return 0.25
-	} else if ratio <= 0.50 {
-		return 0.50
-	} else if ratio <= 0.75 {
-		return 0.75
+func getAdaptiveScale(usageBps, linkBps uint64) float64 {
+	if linkBps == 0 {
+		return 1024.0 // Fallback if link speed unknown
 	}
-	return 1.0
+
+	// Calculate usage ratio
+	ratio := float64(usageBps) / float64(linkBps)
+
+	// Define stable tiers as percentage of total link speed
+	// 0.1%, 1%, 5%, 10%, 25%, 50%, 75%, 100%
+	tiers := []float64{0.001, 0.01, 0.05, 0.10, 0.25, 0.50, 0.75, 1.0}
+
+	for _, t := range tiers {
+		if ratio <= t {
+			return float64(linkBps) * t
+		}
+	}
+
+	// Over 100% (burst or error), use actual usage
+	return float64(usageBps)
 }

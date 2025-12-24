@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/charmbracelet/bubbles/progress"
@@ -37,6 +38,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "shift+tab":
 			m.Tab = (m.Tab + 6) % 7 // Go backward (equivalent to -1 with wrapping for 7 tabs)
+		case "?":
+			m.Tab = TabHelp
+			m.updateHelpViewport()
 		case "1":
 			m.Tab = TabOverview
 		case "2":
@@ -83,6 +87,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.ScrollUp(1)
 			case TabProc:
 				m.ProcViewport.ScrollUp(1)
+			case TabHelp:
+				m.HelpViewport.ScrollUp(1)
 			}
 		case "down", "j":
 			switch m.Tab {
@@ -100,6 +106,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.ScrollDown(1)
 			case TabProc:
 				m.ProcViewport.ScrollDown(1)
+			case TabHelp:
+				m.HelpViewport.ScrollDown(1)
 			}
 		case "pgup":
 			switch m.Tab {
@@ -117,6 +125,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.PageUp()
 			case TabProc:
 				m.ProcViewport.PageUp()
+			case TabHelp:
+				m.HelpViewport.PageUp()
 			}
 		case "pgdn":
 			switch m.Tab {
@@ -134,6 +144,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.PageDown()
 			case TabProc:
 				m.ProcViewport.PageDown()
+			case TabHelp:
+				m.HelpViewport.PageDown()
 			}
 		case "home":
 			switch m.Tab {
@@ -151,6 +163,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.GotoTop()
 			case TabProc:
 				m.ProcViewport.GotoTop()
+			case TabHelp:
+				m.HelpViewport.GotoTop()
 			}
 		case "end":
 			switch m.Tab {
@@ -168,6 +182,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.GotoBottom()
 			case TabProc:
 				m.ProcViewport.GotoBottom()
+			case TabHelp:
+				m.HelpViewport.GotoBottom()
 			}
 		case "+", "=":
 			// Increase update interval (max 10 seconds)
@@ -225,6 +241,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.TempViewport.Height = l.UsableHeight()
 		m.ProcViewport.Width = l.UsableWidth()
 		m.ProcViewport.Height = l.UsableHeight()
+		m.HelpViewport.Width = l.UsableWidth()
+		m.HelpViewport.Height = l.UsableHeight()
 
 		// Split View (Net/Cores)
 		leftBoxW, _ := l.SplitTwoColumns(l.UsableWidth(), 2)
@@ -262,18 +280,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateNetViewport()
 		m.updateTempViewport()
 		m.updateProcViewport()
+		m.updateHelpViewport()
 
 	case tickMsg:
-		m.Stats = msg.Stats
-		m.LastSync = time.Now()
+		if msg.Err != nil {
+			if m.Loading {
+				m.LoadingMsg = fmt.Sprintf("Error: %v", msg.Err)
+			}
+		} else {
+			m.Stats = msg.Stats
+			m.LastSync = time.Now()
+		}
 
 		if m.Loading {
+			// If we have an error, we keep showing it until success or timeout (implied retry via Tick)
+			if msg.Err != nil {
+				return m, tea.Tick(m.UpdateInterval, func(t time.Time) tea.Msg {
+					s, err := stats.GetStats(false)
+					return tickMsg{Stats: s, Err: err}
+				})
+			}
+
 			m.LoadingMsg = msg.Step
 			m.AnimFrame++ // Increment animation frame for road effect
 
-			// Check what data we actually have to determine progress
-			stepsCompleted := 0
-			totalSteps := 8.0 // CPU, Memory, Disk, Network, Processes, Connections, Temperatures, Host
+			// Check strictly for critical data: CPU and Memory
+			stepsCompleted := 0.0
+			totalSteps := 2.0
 
 			if len(m.Stats.CPUCores) > 0 {
 				stepsCompleted++
@@ -281,26 +314,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.Stats.TotalMemory > 0 {
 				stepsCompleted++
 			}
-			if len(m.Stats.Disks) > 0 {
-				stepsCompleted++
-			}
-			if len(m.Stats.TopCPU) > 0 {
-				stepsCompleted++
-			}
-			if m.Stats.NetSent > 0 {
-				stepsCompleted++
-			}
-			if len(m.Stats.Processes) > 0 {
-				stepsCompleted++
-			}
-			if len(m.Stats.Temperatures) > 0 {
-				stepsCompleted++
-			}
-			if len(m.Stats.Connections) > 0 {
-				stepsCompleted++
-			}
 
-			m.LoadVal = float64(stepsCompleted) / totalSteps
+			m.LoadVal = stepsCompleted / totalSteps
 
 			if m.LoadVal >= 1.0 {
 				// Ensure minimum splash display time of 1 second
@@ -309,9 +324,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 				if elapsed < minDisplayTime {
 					// Wait for remaining time before transitioning
+					m.LoadingMsg = "Finished"
 					remainingTime := minDisplayTime - elapsed
 					return m, tea.Tick(remainingTime, func(t time.Time) tea.Msg {
-						return tickMsg{Stats: m.Stats, Step: "Complete"}
+						return tickMsg{Stats: m.Stats, Step: "Finished"}
 					})
 				}
 
@@ -325,32 +341,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.updateNetViewport()
 				m.updateTempViewport()
 				m.updateProcViewport()
+				m.updateHelpViewport()
 			} else {
 				// Determine next message based on what's missing
 				var nextStep string
 				if len(m.Stats.CPUCores) == 0 {
-					nextStep = "Scanning CPU."
+					nextStep = "Scanning CPU..."
 				} else if m.Stats.TotalMemory == 0 {
-					nextStep = "Reading Memory."
-				} else if len(m.Stats.Disks) == 0 {
-					nextStep = "Mounting Disks."
-				} else if len(m.Stats.TopCPU) == 0 {
-					nextStep = "Listing Processes."
-				} else if m.Stats.NetSent == 0 {
-					nextStep = "Detecting Network."
-				} else if len(m.Stats.Processes) == 0 { // New check for processes
-					nextStep = "Gathering Process Info."
+					nextStep = "Reading Memory..."
 				} else {
-					nextStep = "Finalizing."
+					nextStep = "Finalizing..."
 				}
 				return m, tickMsgCmd(nextStep)
 			}
 		}
 
 		if msg.Err == nil {
-			m.Stats = msg.Stats
-			m.LastSync = time.Now()
-
 			// Only update the active tab's viewport to reduce CPU usage
 			switch m.Tab {
 			case TabOverview:
@@ -400,6 +406,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		v = &m.TempViewport
 	case TabProc:
 		v = &m.ProcViewport
+	case TabHelp:
+		v = &m.HelpViewport
 	}
 
 	if v != nil {

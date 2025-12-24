@@ -18,6 +18,7 @@ const (
 	TabNet
 	TabTemp
 	TabProc
+	TabHelp
 )
 
 type tickMsg struct {
@@ -45,6 +46,7 @@ type Model struct {
 	OverviewViewport viewport.Model
 	TempViewport     viewport.Model
 	ProcViewport     viewport.Model
+	HelpViewport     viewport.Model
 	TempProgs        map[string]progress.Model
 	SortBy           string
 	Loading          bool

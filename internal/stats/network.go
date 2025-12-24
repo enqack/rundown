@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"sync"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/net"
@@ -9,6 +10,7 @@ import (
 var (
 	lastIfaceStats map[string]net.IOCountersStat
 	lastNetTime    time.Time
+	netMutex       sync.Mutex
 )
 
 func init() {
@@ -27,6 +29,10 @@ func collectNetwork(s *SystemStats) {
 	now := time.Now()
 	var totalSent, totalRecv uint64
 	var duration float64
+
+	netMutex.Lock()
+	defer netMutex.Unlock()
+
 	if !lastNetTime.IsZero() {
 		duration = now.Sub(lastNetTime).Seconds()
 	}

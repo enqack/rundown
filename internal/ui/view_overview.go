@@ -72,14 +72,17 @@ func (m *Model) updateOverviewViewport() {
 	s.WriteString(m.renderTacticalGauge(l.UsableWidth(), diskHeader, m.DiskProg, diskRatio, diskRatio*100, "%") + "\n")
 
 	// Network Overview - Grouped
-	scaleUp := getStepScale(m.Stats.NetSentDelta*8, m.Stats.LinkSpeed)
-	scaleDn := getStepScale(m.Stats.NetRecvDelta*8, m.Stats.LinkSpeed)
+	scaleUp := getAdaptiveScale(m.Stats.NetSentDelta*8, m.Stats.LinkSpeed)
+	scaleDn := getAdaptiveScale(m.Stats.NetRecvDelta*8, m.Stats.LinkSpeed)
 
-	netUpTitle := fmt.Sprintf("Egress (Scale: %s/s)", stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleUp)))
-	netDnTitle := fmt.Sprintf("Ingress (Scale: %s/s)", stats.FormatBytes(uint64(float64(m.Stats.LinkSpeed/8)*scaleDn)))
+	scaleUpPct := (scaleUp / float64(m.Stats.LinkSpeed)) * 100
+	scaleDnPct := (scaleDn / float64(m.Stats.LinkSpeed)) * 100
 
-	upRatio := float64(m.Stats.NetSentDelta*8) / (float64(m.Stats.LinkSpeed) * scaleUp)
-	dnRatio := float64(m.Stats.NetRecvDelta*8) / (float64(m.Stats.LinkSpeed) * scaleDn)
+	netUpTitle := fmt.Sprintf("Egress Scale: %s/s (%.1f%%)", stats.FormatBytes(uint64(scaleUp/8)), scaleUpPct)
+	netDnTitle := fmt.Sprintf("Ingress Scale: %s/s (%.1f%%)", stats.FormatBytes(uint64(scaleDn/8)), scaleDnPct)
+
+	upRatio := float64(m.Stats.NetSentDelta*8) / scaleUp
+	dnRatio := float64(m.Stats.NetRecvDelta*8) / scaleDn
 
 	if m.Width > 120 {
 		leftW, rightW := l.SplitTwoColumns(l.UsableWidth(), 2)
