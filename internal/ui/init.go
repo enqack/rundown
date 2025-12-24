@@ -39,6 +39,7 @@ func NewModel() Model {
 		TempProgs:        make(map[string]progress.Model),
 		Loading:          true,
 		LoadingMsg:       "Scanning CPU/Memory...",
+		LoadingStartTime: time.Now(),
 		LoadProg:         theme.NewThemedProgress(),
 		SortBy:           "cpu",
 		UpdateInterval:   time.Second, // Default 1 second update interval
@@ -53,7 +54,8 @@ func (m Model) Init() tea.Cmd {
 
 func tickMsgCmd(step string) tea.Cmd {
 	return func() tea.Msg {
-		s, err := stats.GetStats()
+		// Initial stats collection (no full process details needed yet)
+		s, err := stats.GetStats(false)
 		return tickMsg{Stats: s, Err: err, Step: step}
 	}
 }

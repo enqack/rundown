@@ -18,6 +18,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		case "tab":
 			m.Tab = (m.Tab + 1) % 7 // Cycle through 7 tabs (0-6)
+			// Update the new tab's viewport when switching
+			switch m.Tab {
+			case TabOverview:
+				m.updateOverviewViewport()
+			case TabCPU:
+				m.updateCpuViewport()
+			case TabMem:
+				m.updateMemViewport()
+			case TabDisk:
+				m.updateDiskViewport()
+			case TabNet:
+				m.updateNetViewport()
+			case TabTemp:
+				m.updateTempViewport()
+			case TabProc:
+				m.updateProcViewport()
+			}
 		case "shift+tab":
 			m.Tab = (m.Tab + 6) % 7 // Go backward (equivalent to -1 with wrapping for 7 tabs)
 		case "1":
@@ -117,6 +134,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.TempViewport.PageDown()
 			case TabProc:
 				m.ProcViewport.PageDown()
+			}
+		case "home":
+			switch m.Tab {
+			case TabOverview:
+				m.OverviewViewport.GotoTop()
+			case TabCPU:
+				m.CPUViewport.GotoTop()
+			case TabMem:
+				m.MemViewport.GotoTop()
+			case TabDisk:
+				m.DiskViewport.GotoTop()
+			case TabNet:
+				m.NetViewport.GotoTop()
+			case TabTemp:
+				m.TempViewport.GotoTop()
+			case TabProc:
+				m.ProcViewport.GotoTop()
+			}
+		case "end":
+			switch m.Tab {
+			case TabOverview:
+				m.OverviewViewport.GotoBottom()
+			case TabCPU:
+				m.CPUViewport.GotoBottom()
+			case TabMem:
+				m.MemViewport.GotoBottom()
+			case TabDisk:
+				m.DiskViewport.GotoBottom()
+			case TabNet:
+				m.NetViewport.GotoBottom()
+			case TabTemp:
+				m.TempViewport.GotoBottom()
+			case TabProc:
+				m.ProcViewport.GotoBottom()
 			}
 		case "+", "=":
 			// Increase update interval (max 10 seconds)
@@ -218,10 +269,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		if m.Loading {
 			m.LoadingMsg = msg.Step
+			m.AnimFrame++ // Increment animation frame for road effect
 
 			// Check what data we actually have to determine progress
 			stepsCompleted := 0
-			totalSteps := 6.0 // Increased to 6 for processes
+			totalSteps := 8.0 // CPU, Memory, Disk, Network, Processes, Connections, Temperatures, Host
 
 			if len(m.Stats.CPUCores) > 0 {
 				stepsCompleted++
@@ -238,14 +290,34 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.Stats.NetSent > 0 {
 				stepsCompleted++
 			}
-			if len(m.Stats.Processes) > 0 { // Check for processes
+			if len(m.Stats.Processes) > 0 {
+				stepsCompleted++
+			}
+			if len(m.Stats.Temperatures) > 0 {
+				stepsCompleted++
+			}
+			if len(m.Stats.Connections) > 0 {
 				stepsCompleted++
 			}
 
 			m.LoadVal = float64(stepsCompleted) / totalSteps
 
 			if m.LoadVal >= 1.0 {
+				// Ensure minimum splash display time of 1 second
+				elapsed := time.Since(m.LoadingStartTime)
+				minDisplayTime := 1 * time.Second
+
+				if elapsed < minDisplayTime {
+					// Wait for remaining time before transitioning
+					remainingTime := minDisplayTime - elapsed
+					return m, tea.Tick(remainingTime, func(t time.Time) tea.Msg {
+						return tickMsg{Stats: m.Stats, Step: "Complete"}
+					})
+				}
+
+				// Minimum time elapsed, transition immediately
 				m.Loading = false
+				// Update all viewports on initial load
 				m.updateOverviewViewport()
 				m.updateCpuViewport()
 				m.updateMemViewport()
@@ -278,18 +350,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.Err == nil {
 			m.Stats = msg.Stats
 			m.LastSync = time.Now()
-			// Update all viewports to ensure data is ready when switching tabs
-			m.updateOverviewViewport()
-			m.updateCpuViewport()
-			m.updateMemViewport()
-			m.updateDiskViewport()
-			m.updateNetViewport()
-			m.updateTempViewport()
-			m.updateProcViewport()
+
+			// Only update the active tab's viewport to reduce CPU usage
+			switch m.Tab {
+			case TabOverview:
+				m.updateOverviewViewport()
+			case TabCPU:
+				m.updateCpuViewport()
+			case TabMem:
+				m.updateMemViewport()
+			case TabDisk:
+				m.updateDiskViewport()
+			case TabNet:
+				m.updateNetViewport()
+			case TabTemp:
+				m.updateTempViewport()
+			case TabProc:
+				m.updateProcViewport()
+			}
 		}
 		// Use configurable interval
 		return m, tea.Tick(m.UpdateInterval, func(t time.Time) tea.Msg {
-			s, err := stats.GetStats()
+			// Only collect full process details if on Process tab
+			fullDetails := m.Tab == TabProc
+			s, err := stats.GetStats(fullDetails)
 			return tickMsg{Stats: s, Err: err}
 		})
 

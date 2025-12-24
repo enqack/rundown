@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -12,8 +14,10 @@ import (
 )
 
 var (
-	themeName string
-	RootCmd   = &cobra.Command{
+	themeName     string
+	enableProfile bool
+	profilePort   int
+	RootCmd       = &cobra.Command{
 		Use:   "rundown",
 		Short: "Rundown - A beautiful terminal system monitor",
 		Long: `Rundown is a fast, beautiful system monitor for your terminal.
@@ -29,6 +33,10 @@ func init() {
 	// Flags
 	RootCmd.PersistentFlags().StringVarP(&themeName, "theme", "t", "base16",
 		"Color theme: base16, cyberpunk, monochrome, phosphor")
+	RootCmd.PersistentFlags().BoolVar(&enableProfile, "profile", false,
+		"Enable pprof profiling server")
+	RootCmd.PersistentFlags().IntVar(&profilePort, "profile-port", 6060,
+		"Port for pprof profiling server")
 
 	// Bind flags to viper
 	_ = viper.BindPFlag("theme", RootCmd.PersistentFlags().Lookup("theme"))
@@ -58,6 +66,17 @@ func runApp(cmd *cobra.Command, args []string) {
 
 	// Initialize theme
 	theme.Init(selectedTheme)
+
+	// Start profiling server if enabled
+	if enableProfile {
+		go func() {
+			addr := fmt.Sprintf("localhost:%d", profilePort)
+			fmt.Fprintf(os.Stderr, "Starting pprof server on http://%s/debug/pprof/\n", addr)
+			if err := http.ListenAndServe(addr, nil); err != nil {
+				fmt.Fprintf(os.Stderr, "pprof server error: %v\n", err)
+			}
+		}()
+	}
 
 	// Run application
 	p := tea.NewProgram(ui.NewModel(), tea.WithAltScreen())

@@ -134,7 +134,7 @@ func (m Model) renderFooter() string {
 
 	// Add scroll keybinding after sort controls if content is scrollable
 	if v.TotalLineCount() > v.Height && v.Height > 0 {
-		keys = append(keys, "j/k: Scroll")
+		keys = append(keys, "j/k: Scroll", "Home/End: Jump")
 	}
 
 	keys = append(keys, "+/-: Speed", "q: Quit")

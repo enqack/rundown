@@ -1,12 +1,15 @@
 # Rundown
 
-A beautiful, fast terminal system monitor built with Go and Bubble Tea.
+A beautiful, fast terminal system **monitor** built with Go and Bubble Tea.
+
+> **Note**: Rundown is a **monitor**, not a manager. It provides a comprehensive view of your system (a "rundown") but doesn't allow process control like killing or renicing. For process management, use tools like `htop` or `top`.
 
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)
 
 ## Features
 
-- **Real-time System Monitoring**: CPU, memory, disk, network, and temperature metrics
+- **Read-Only Monitoring**: Safe, non-intrusive system observation
+- **Real-time System Metrics**: CPU, memory, disk, network, and temperature
 - **7 Specialized Views**:
   - **Overview**: System summary with key metrics
   - **CPU**: Per-core utilization and load averages
@@ -22,7 +25,12 @@ A beautiful, fast terminal system monitor built with Go and Bubble Tea.
   - `phosphor`: Retro green CRT monitor aesthetic
 - **Smooth Scrolling**: Navigate large datasets with viewport controls
 - **Configurable Updates**: Adjust refresh rate with `+/-` keys
+- **Performance Optimized**:
+  - Lazy loading: Process details only collected when viewing Process tab
+  - Smart viewport updates: Only active tab refreshes
+  - Efficient process enumeration: Minimal syscalls
 - **Keyboard-Driven**: Efficient navigation without touching the mouse
+- **Built-in Profiling**: Optional pprof support for performance analysis
 
 ## Installation
 
@@ -80,13 +88,14 @@ rundown -t phosphor
 
 | Key | Action |
 |-----|--------|
-| `Tab` | Switch between tabs |
+| `Tab` / `Shift+Tab` | Switch between tabs |
 | `1-7` | Jump to specific tab |
 | `j/k` | Scroll down/up (when content is scrollable) |
-| `c/m/p/n/u/t` | Sort processes by CPU/Memory/PID/Name/User/Time |
+| `Home/End` | Jump to top/bottom of scrollable content |
+| `c/m/p/n/u/t/v` | Sort processes by CPU/Memory/PID/Name/User/Time/Virtual |
 | `l/f/p/n/s` | Sort network by Local/Foreign/Proto/Name/State |
 | `+/-` | Increase/decrease update interval |
-| `q` | Quit |
+| `q` / `Ctrl+C` | Quit |
 
 ## Configuration
 
@@ -141,6 +150,20 @@ mage fmt    # Format code
 mage lint   # Run golangci-lint
 mage vet    # Run go vet
 ```
+
+### Profiling
+
+Rundown includes built-in profiling support to analyze performance:
+
+```bash
+# Run with profiling enabled
+rundown --profile
+
+# In another terminal, capture CPU profile
+go tool pprof http://localhost:6060/debug/pprof/profile?seconds=30
+```
+
+See [PROFILING.md](PROFILING.md) for detailed profiling instructions.
 
 ## Architecture
 

@@ -7,14 +7,17 @@ import (
 )
 
 func (m Model) splashView() string {
-	title := `█▀▀█ █  █ █▀▀▄ █▀▀▄ █▀▀█ █   █ █▀▀▄ 
-█▄▄▀ █  █ █  █ █  █ █  █ █ █ █ █  █ 
-█ ▀█ ▀▄▄▀ █  █ █▄▄▀ ▀▄▄▀ ▀▄▀▄▀ █  █`
+	title := `
+██████╗ ██╗   ██╗███╗   ██╗██████╗  ██████╗ ██╗    ██╗███╗   ██╗
+██╔══██╗██║   ██║████╗  ██║██╔══██╗██╔═══██╗██║    ██║████╗  ██║
+██████╔╝██║   ██║██╔██╗ ██║██║  ██║██║   ██║██║ █╗ ██║██╔██╗ ██║
+██╔══██╗██║   ██║██║╚██╗██║██║  ██║██║   ██║██║███╗██║██║╚██╗██║
+██║  ██║╚██████╔╝██║ ╚████║██████╔╝╚██████╔╝╚███╔███╔╝██║ ╚████║
+╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝╚═════╝  ╚═════╝  ╚══╝╚══╝ ╚═╝  ╚═══╝`
 
-	content := theme.SplashTitleStyle.Render(title) + "\n" +
-		theme.LogoStyle.Render("Rundown in progress!") + "\n\n" +
-		m.LoadProg.ViewAs(m.LoadVal) + "\n\n" +
-		m.LoadingMsg + "\n"
+	content := theme.SplashTitleStyle.Render(title) + "\n\n" +
+		m.LoadProg.ViewAs(m.LoadVal) + "\n" +
+		theme.LogoStyle.Render(m.LoadingMsg) + "\n"
 
 	// Center horizontally and vertically
 	l := layout.New(m.Width, m.Height)

@@ -6,7 +6,8 @@ import (
 )
 
 // GetStats collects all system statistics by orchestrating collection from specialized modules
-func GetStats() (SystemStats, error) {
+// fullProcessDetails controls whether to collect detailed process info (expensive) or just lightweight stats
+func GetStats(fullProcessDetails bool) (SystemStats, error) {
 	var s SystemStats
 
 	// Collect from specialized modules
@@ -17,7 +18,7 @@ func GetStats() (SystemStats, error) {
 	collectNetwork(&s)
 
 	// Process collection returns process list needed for connections
-	procs := collectProcesses(&s)
+	procs := collectProcesses(&s, fullProcessDetails)
 	collectConnections(&s, procs)
 
 	// Temperature collection

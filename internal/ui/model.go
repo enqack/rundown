@@ -49,6 +49,8 @@ type Model struct {
 	SortBy           string
 	Loading          bool
 	LoadingMsg       string
+	LoadingStartTime time.Time
+	AnimFrame        int
 	LoadVal          float64
 	LoadProg         progress.Model
 	Tab              Tab

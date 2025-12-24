@@ -9,15 +9,14 @@ import (
 	"github.com/shirou/gopsutil/v3/process"
 )
 
-// collectProcesses gathers top CPU and memory consuming processes
-func collectProcesses(s *SystemStats) []*process.Process {
+// collectProcesses gathers process statistics
+// fullDetails controls whether to collect detailed info for all top processes (Process tab)
+// or just lightweight stats for counts and top 10 (other tabs)
+func collectProcesses(s *SystemStats, fullDetails bool) []*process.Process {
 	procs, err := process.Processes()
 	if err != nil {
 		return nil
 	}
-
-	var cpuProcs []ProcessInfo
-	var memProcs []ProcessInfo
 
 	// Reset counters
 	s.ProcTotal = 0
@@ -26,10 +25,17 @@ func collectProcesses(s *SystemStats) []*process.Process {
 	s.ProcStopped = 0
 	s.ProcZombie = 0
 
+	// First pass: lightweight counting only (no expensive fields)
+	type lightProc struct {
+		p      *process.Process
+		cpuPct float64
+	}
+	var candidates []lightProc
+
 	for _, p := range procs {
 		s.ProcTotal++
-		name, _ := p.Name()
-		user, _ := p.Username()
+
+		// Get status for counting (relatively cheap)
 		statusStrSlice, _ := p.Status()
 		state := " "
 		if len(statusStrSlice) > 0 && len(statusStrSlice[0]) > 0 {
@@ -40,12 +46,50 @@ func collectProcesses(s *SystemStats) []*process.Process {
 		switch state {
 		case "R":
 			s.ProcRunning++
-		case "S", "I": // Sleep or Idle
+		case "S", "I":
 			s.ProcSleeping++
 		case "T":
 			s.ProcStopped++
 		case "Z":
 			s.ProcZombie++
+		}
+
+		// Get CPU for sorting (expensive but necessary)
+		cpuPct, err := p.CPUPercent()
+		if err == nil {
+			// For full details (Process tab), include ALL processes
+			// For lightweight mode, only include processes with active CPU
+			if fullDetails || cpuPct > 0.01 {
+				candidates = append(candidates, lightProc{p: p, cpuPct: cpuPct})
+			}
+		}
+	}
+
+	// Sort by CPU and take top 10 for lightweight mode, or all for Process tab
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].cpuPct > candidates[j].cpuPct
+	})
+
+	// Limit based on detail level
+	if !fullDetails {
+		// Lightweight mode: only top 10 for display on other tabs
+		limit := 10
+		if len(candidates) < limit {
+			limit = len(candidates)
+		}
+		candidates = candidates[:limit]
+	}
+	// else: Process tab gets ALL processes (no limit)
+
+	// Second pass: detailed info only for top processes
+	for _, lp := range candidates {
+		p := lp.p
+		name, _ := p.Name()
+		user, _ := p.Username()
+		statusStrSlice, _ := p.Status()
+		state := " "
+		if len(statusStrSlice) > 0 && len(statusStrSlice[0]) > 0 {
+			state = statusStrSlice[0][0:1]
 		}
 
 		nice, _ := p.Nice()
@@ -57,7 +101,6 @@ func collectProcesses(s *SystemStats) []*process.Process {
 			rss = memInfo.RSS
 		}
 
-		cpuPct, _ := p.CPUPercent()
 		memPct, _ := p.MemoryPercent()
 
 		createTime, _ := p.CreateTime()
@@ -82,24 +125,18 @@ func collectProcesses(s *SystemStats) []*process.Process {
 			Virtual:  vms,
 			Resident: rss,
 			Shared:   shared,
-			CPU:      cpuPct,
+			CPU:      lp.cpuPct,
 			Memory:   float64(memPct),
 			Time:     runningTime,
 			Cmdline:  cmdline,
 		}
 
-		// Always add to the full process list
 		s.Processes = append(s.Processes, pinfo)
-
-		// Filter for top views
-		if pinfo.CPU > 0.1 || pinfo.Memory > 0.1 {
-			cpuProcs = append(cpuProcs, pinfo)
-			memProcs = append(memProcs, pinfo)
-		}
 	}
 
-	s.TopCPU = sortAndLimit(cpuProcs, "cpu", 10)
-	s.TopMem = sortAndLimit(memProcs, "mem", 10)
+	// Sort and limit for top views (use full process list)
+	s.TopCPU = sortAndLimit(s.Processes, "cpu", 10)
+	s.TopMem = sortAndLimit(s.Processes, "mem", 10)
 
 	return procs
 }
