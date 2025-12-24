@@ -4,6 +4,8 @@ A beautiful, fast terminal system **monitor** built with Go and Bubble Tea.
 
 > **Note**: Rundown is a **monitor**, not a manager. It provides a comprehensive view of your system (a "rundown") but doesn't allow process control like killing or renicing. For process management, use tools like `htop` or `top`.
 
+![Go Version](https://img.shields.io/badge/go-%3E%3D1.22-00ADD8?logo=go)
+![Made with Bubble Tea](https://img.shields.io/badge/made%20with-Bubble%20Tea-5A56E0)
 ![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)
 
 ## Features
