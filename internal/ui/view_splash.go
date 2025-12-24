@@ -1,0 +1,22 @@
+package ui
+
+import (
+	"github.com/charmbracelet/lipgloss"
+	"github.com/enqack/rundown/internal/layout"
+	"github.com/enqack/rundown/internal/theme"
+)
+
+func (m Model) splashView() string {
+	content := theme.SplashTitleStyle.Render("RUNDOWN") + "\n" +
+		theme.LogoStyle.Render("Rundown in progress!") + "\n\n" +
+		m.LoadProg.ViewAs(m.LoadVal) + "\n\n" +
+		m.LoadingMsg + "\n"
+
+	// Center horizontally and vertically
+	l := layout.New(m.Width, m.Height)
+
+	return lipgloss.Place(l.UsableWidth(), l.InnerHeight(),
+		lipgloss.Center, lipgloss.Center,
+		content,
+	)
+}
